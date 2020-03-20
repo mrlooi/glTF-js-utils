@@ -546,7 +546,7 @@ function skin_test() {
 
     GLTFUtils.exportGLTF(asset, {bufferOutputType: GLTFUtils.BufferOutputType.DataURI}).then((value)=>{
         console.log(value["model.gltf"]);
-        download(value["model.gltf"], "yolo.gltf");
+        // download(value["model.gltf"], "yolo.gltf");
     })
 }
 
