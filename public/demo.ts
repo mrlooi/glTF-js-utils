@@ -1,9 +1,14 @@
 import * as GLTFUtils from "../src/index";
 import { ComponentType, DataType } from "../src/index";
 import { glTF, glTFAnimation, glTFAnimationChannel, glTFAnimationSampler } from "../src/gltftypes";
+import { Animation } from "../src/animation";
 import { InterpolationMode, Transformation } from "../src/types";
 import { addAccessor, addBuffer, addScenes, createEmptyGLTF } from "../src/gltf";
 
+function assert_scalar_equal(s:number, s1:number, eps:number=1e-4)
+{
+    console.assert(Math.abs(s - s1) < eps);
+}
 
 function download(content: string, fileName: string, contentType: string = "text/plain") {
     const a = document.createElement("a");
@@ -190,7 +195,7 @@ function animation_test() {
     scene.addNode(node);
 
     let nodeAnim1 = new GLTFUtils.Animation(Transformation.ROTATION);
-    nodeAnim1.keyframes = [
+    let keyframes = [
         {
             time: 0,
             value: [1,2,3,4],
@@ -212,12 +217,13 @@ function animation_test() {
             interpType: InterpolationMode.STEP
         }
     ];
+    nodeAnim1.addKeyframes(keyframes);
     nodeAnim1.addKeyframe(0.8, [1,2,3,4], InterpolationMode.STEP);
 
     console.log(nodeAnim1)
 
     let nodeAnim2 = new GLTFUtils.Animation(Transformation.TRANSLATION);
-    nodeAnim2.keyframes = [
+    keyframes = [
         {
             time: 0,
             value: [1,2,3],
@@ -229,6 +235,7 @@ function animation_test() {
             interpType: InterpolationMode.LINEAR
         }
     ];
+    nodeAnim2.addKeyframes(keyframes);
     node.animations = [nodeAnim1, nodeAnim2];
 
     addScenes(gltf, asset);
@@ -346,7 +353,7 @@ function animation_cubicspline_test() {
     scene.addNode(node);
 
     let nodeAnim1 = new GLTFUtils.Animation(Transformation.TRANSLATION);
-    nodeAnim1.keyframes = [
+    let keyframes = [
         {
             time: -0.2,
             value: [1,2,3],
@@ -356,26 +363,22 @@ function animation_cubicspline_test() {
             time: 0,
             value: [1,2,3],
             interpType: InterpolationMode.CUBICSPLINE,
-            extras: {
-                outTangent: [0.1,0.1,0.1]
-            }
+            rightTangent: [0.1,0.2,0.3],
+            leftTangentWeight: [0.22,0.4,0.6],
+            include: [0, 2]
         },
         {
             time: 0.2,
             value: [4,5,6],
             interpType: InterpolationMode.CUBICSPLINE,
-            extras: {
-                outTangent: [0.2,0.2,0.2],
-                inTangent: [0.3,0.3,0.3]
-            }
+            rightTangent: [0.5,0.3,0.3],
+            leftTangent: [-0.2,0.2,0.2],
         },
         {
             time: 0.4,
             value: [7,8,9],
             interpType: InterpolationMode.CUBICSPLINE,
-            extras: {
-                inTangent: [0.5,0.5,0.5]
-            }
+            leftTangent: [0.5,0.5,0.5]
         },
         {
             time: 0.6,
@@ -383,6 +386,7 @@ function animation_cubicspline_test() {
             interpType: InterpolationMode.LINEAR,
         },
     ];
+    nodeAnim1.addKeyframes(keyframes)
     node.animations = [nodeAnim1];
 
     addScenes(gltf, asset);
@@ -394,13 +398,50 @@ function animation_cubicspline_test() {
     const time_BV = BV[0];
     const anim_BV = BV[1];
 
-    console.assert(time_accessor.count * 3 === anim_accessor.count);
+    console.assert(time_accessor.count === anim_accessor.count);
 
-    Promise.all(gltf.extras.promises).then(()=>{
-        // console.assert(time_BV.byteLength * 3 * 3 === anim_BV.byteLength);
-    });
+    // Promise.all(gltf.extras.promises).then(()=>{
+    //     // console.assert(time_BV.byteLength * 3 * 3 === anim_BV.byteLength);
+    // });
 
-    console.log(gltf)
+    // console.log(gltf)
+    GLTFUtils.exportGLTF(asset, {bufferOutputType: GLTFUtils.BufferOutputType.DataURI}).then((value)=>{
+        let out = JSON.parse(value["model.gltf"])
+        let anim_samplers = out.animations[0].samplers;
+        console.assert(anim_samplers!.length === 3 && anim_samplers[1].extras.tangents);
+
+        let tangent_acc_id = anim_samplers[1].extras.tangents;
+        let tangent_accessor = out.accessors[tangent_acc_id]
+
+        console.log(out)
+
+        console.assert(tangent_accessor.count === 3 * 3); // 3 cubicspline keyframes * 3 floats (for vector3)
+        const BV = out.bufferViews![tangent_accessor.bufferView];
+        const buffer = out.buffers![BV.buffer];
+        const uri = decodeURI(buffer.uri);
+        let sdata = atob(uri.split(",")[1]) // decode to byte array
+        
+        const byteOffset = BV.byteOffset + tangent_accessor.byteOffset
+        const size = tangent_accessor.count * 4 * 4; // vec4 * 4 bytes (float32)
+        sdata = sdata.slice(byteOffset, byteOffset+size)
+        const uint_array = new Uint8Array(sdata.length)
+        for(let i = 0; i < sdata.length; ++i) uint_array[i] = sdata.charCodeAt(i)
+        // console.log(enc, byteOffset, size, uint_array.length, sdata.length, enc.encode(sdata.slice(byteOffset, byteOffset+100)).length)
+
+        let data = new Float32Array(uint_array.buffer); // rightTangent, rightTangentWeight, leftTangent, leftTangentWeight
+        assert_scalar_equal(data[0], keyframes[1].rightTangent![0]) // keyframe 1, vec3.x, rightTangent
+        assert_scalar_equal(data[1], Animation.DEFAULT_TANGENT_WEIGHT) // keyframe 1, vec3.x, rightTangentWeight
+        assert_scalar_equal(data[2], Animation.DEFAULT_TANGENT) // keyframe 1, vec3.x, leftTangent
+        assert_scalar_equal(data[3], keyframes[1].leftTangentWeight![0]) // keyframe 1, vec3.x, leftTangentWeight
+        assert_scalar_equal(data[4], keyframes[1].rightTangent![1]) // keyframe 1, vec3.y, rightTangent
+        assert_scalar_equal(data[8], keyframes[1].rightTangent![2]) // keyframe 1, vec3.z, rightTangent
+        assert_scalar_equal(data[12], keyframes[2].rightTangent![0]) // keyframe2, vec3.x, rightTangent
+        assert_scalar_equal(data[14], keyframes[2].leftTangent![0]) // keyframe2, vec3.x, leftTangent
+
+        // console.log(data, BV, buffer);
+        
+        // download(value["model.gltf"], "yolo.gltf");
+    })
 }
 
 function skin_test() {
@@ -490,7 +531,7 @@ function skin_test() {
     }
 
     let nodeAnim1 = new GLTFUtils.Animation(Transformation.ROTATION);
-    nodeAnim1.keyframes = [
+    let keyframes = [
         {
             time: 0,
             value: [1,2,3,4],
@@ -512,10 +553,11 @@ function skin_test() {
             interpType: InterpolationMode.STEP
         }
     ];
+    nodeAnim1.addKeyframes(keyframes)
     nodeAnim1.addKeyframe(0.8, [1,2,3,4], InterpolationMode.STEP);
 
     let nodeAnim2 = new GLTFUtils.Animation(Transformation.TRANSLATION);
-    nodeAnim2.keyframes = [
+    keyframes = [
         {
             time: 0,
             value: [1,2,3],
@@ -527,9 +569,10 @@ function skin_test() {
             interpType: InterpolationMode.LINEAR
         }
     ];
+    nodeAnim2.addKeyframes(keyframes)
 
     let nodeAnim3 = new GLTFUtils.Animation(Transformation.SCALE);
-    nodeAnim3.keyframes = [
+    keyframes = [
         {
             time: 0,
             value: [10,20,30], // degrees
@@ -541,6 +584,7 @@ function skin_test() {
             interpType: InterpolationMode.CUBICSPLINE
         }
     ]
+    nodeAnim3.addKeyframes(keyframes)
     node.animations = [nodeAnim1, nodeAnim2];
     node2.animations = [nodeAnim3];
 
@@ -564,8 +608,8 @@ function matrix_test() {
     console.assert(!Matrix.IsIdentity(M));
 }
 
-matrix_test();
+// matrix_test();
 // test1();
 animation_test();
 animation_cubicspline_test();
-skin_test();
+// skin_test();

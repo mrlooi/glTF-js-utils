@@ -50,7 +50,7 @@ mesh.addFace(v4, v5, v6, faceMaterialIndex);
 // ...
 ```
 
-###### Create Animation
+###### Create Animation 
 
 ```javascript
 import { Node, Animation, InterpolationMode, Transformation } from "gltf-js-utils";
@@ -58,11 +58,16 @@ import { Node, Animation, InterpolationMode, Transformation } from "gltf-js-util
 const node = new Node();
 scene.addNode(node);
 const nodeAnim = new Animation(Transformation.TRANSLATION);
-nodeAnim.keyframes = [
+let keyframes = [
     {
         time: 0,
         value: [1, 2, 3],
-        interpType: InterpolationMode.LINEAR
+        interpType: InterpolationMode.CUBICSPLINE,
+        rightTangent: [0.1,0.2,0.3], // xyz
+        leftTangent: [1,2,3], // xyz (similar to FBX, leftTangent means leftTangent for NEXT FRAME)
+        leftTangentWeight: [0.2,0.4,0.6], // xyz
+
+        include: [0, 2] // means include x z keyframe (and exclude y) // THIS IS JUST A PLACEHOLDER
     },
     {
         time: 0.3,
@@ -70,9 +75,60 @@ nodeAnim.keyframes = [
         interpType: InterpolationMode.LINEAR
     }
 ];
-// or add keyframes via addKeyframe function
-nodeAnim1.addKeyframe(0.8, [7, 8, 9], InterpolationMode.STEP);
+nodeAnim.addKeyframes(keyframes);
+nodeAnim.addKeyframe(0.8, [7, 8, 9], InterpolationMode.STEP, {rightTangent:[0,0,0]});
 node.animations = [nodeAnim];
+
+/*
+NOTE ON `include` field
+GLTF does not support single channel animation out-the-box. 
+As a workaround, `include` is used to indicate which channel should be included as keyframe
+Example: a VEC3 datatype would have a default `include` of [0,1,2] (or equivalent []), representing 
+the indices for all 3 channels
+i.e. `include` of [1] means only the second channel
+
+Note that this is just a placeholder, keyframe values (and/or tangents) would 
+still be required and stored in the output GLTF file
+
+This information is stored in the *extras.include* field in the respective animation *channel*
+{
+    // this sampler has 4 keyframes (3 channels per keyframe i.e. translation xyz)
+    sampler: 0,
+    target: {
+        node: 3, 
+        path: "translation"
+    },
+    extras: {
+        // include.length = 4 keyframes
+        include: [
+            [0,2],   // channel 0 and 2 only  
+            [],      // means all 3 channels
+            [0,1,2], // means all 3 channels
+            [1]      // channel 1 only
+        ]
+    }
+} 
+*/
+
+/*
+NOTE ON CUBICSPLINE TANGENT DATA:
+A separate VEC4 accessor will be created for the tangent data.
+This is stored in the *extras.tangents* field in the respective animation *sampler* 
+{
+    input: 2,
+    output: 3,
+    interpolation: "CUBICSPLINE",
+    extras: {tangents: 4} // points to the VEC4 accessor storing tangent data
+}
+
+Each VEC4 stores (rightTangent, rightTangentWeight, leftTangent, leftTangentWeight) per keyframe per channel 
+Similar to FBX, rightTangent means outTangent for current keyframe, leftTangent means inTangent for next keyframe
+
+Example: For a VEC3 datatype, the order is [VEC3.X Tangent, VEC3.Y Tangent, VEC3.Z Tangent], where Tangent is 
+(rightTangent, rightTangentWeight, leftTangent, leftTangentWeight)
+- rightTangent, leftTangent default at 0
+- rightTangentWeight, leftTangentWeight default at 1 / 3
+*/
 ```
 
 ##### Export to a collection of individual files/data

@@ -71,7 +71,7 @@ export function exportGLTF(asset: GLTFAsset, options?: GLTFExportOptions): Promi
     const jsonSpacing = typeof options!.jsonSpacing === "number" ? options!.jsonSpacing : 4;
     const gltfString = JSON.stringify(gltf, (key: string, value: any) => {
       if (key === "extras")
-        return undefined;
+        return value;
 
       if (value instanceof ArrayBuffer) {
         if (arrayBufferIsPNG(value)) {

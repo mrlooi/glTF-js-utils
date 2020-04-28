@@ -9,11 +9,12 @@ import {
   glTFMesh,
   glTFMeshPrimitives,
   glTFNode,
-  glTFScene, glTFSkin
+  glTFScene,
+  glTFSkin
 } from "./gltftypes";
-import { GLTFAsset } from "./asset";
-import { Node } from "./node";
-import { Scene } from "./scene";
+import {GLTFAsset} from "./asset";
+import {Node} from "./node";
+import {Scene} from "./scene";
 import {
   AlphaMode,
   BufferOutputType,
@@ -27,15 +28,15 @@ import {
   Transformation,
   VertexColorMode
 } from "./types";
-import { Mesh } from "./mesh";
-import { Buffer, BufferAccessorInfo, BufferView } from "./buffer";
-import { Vertex } from "./vertex";
-import { Material } from "./material";
-import { Texture } from "./texture";
-import { imageToArrayBuffer, imageToDataURI } from "./imageutils";
-import { Animation } from "./animation";
-import { Skin } from "./skin";
-import { Matrix4x4 } from "./math";
+import {Mesh} from "./mesh";
+import {Buffer, BufferAccessorInfo, BufferView} from "./buffer";
+import {Vertex} from "./vertex";
+import {Material} from "./material";
+import {Texture} from "./texture";
+import {imageToArrayBuffer, imageToDataURI} from "./imageutils";
+import {Animation, Keyframe} from "./animation";
+import {Skin} from "./skin";
+import {Matrix4x4} from "./math";
 
 export function createEmptyGLTF(): glTF {
   return {
@@ -236,6 +237,29 @@ export function addSkin(gltf: glTF, skin: Skin, node: Node): number {
   return addedIndex;
 }
 
+function GetKeyframeTangentData(keyframe: Keyframe) {
+  let interpType = keyframe.interpType;
+
+  if (interpType != InterpolationMode.CUBICSPLINE || 
+      !keyframe?.rightTangent || !keyframe?.rightTangentWeight || 
+      !keyframe?.leftTangent || !keyframe?.leftTangentWeight)
+    return null;
+
+  const value = keyframe.value;
+
+  const N = value.length;
+
+  let tangentData: number[] = []; // if vec3: abyz abyz abyz
+  for(let i = 0; i < N; ++i) {
+    tangentData.push(keyframe!.rightTangent[i]);
+    tangentData.push(keyframe!.rightTangentWeight[i]);
+    tangentData.push(keyframe!.leftTangent[i]);
+    tangentData.push(keyframe!.leftTangentWeight[i]);
+  }
+
+  return tangentData;
+}
+
 export function addAnimations(gltf: glTF, animations: Animation[], nodeIndex: number) {
   if (animations.length === 0)
     return;
@@ -244,6 +268,7 @@ export function addAnimations(gltf: glTF, animations: Animation[], nodeIndex: nu
   const animBuffer = singleGLBBuffer ? gltf.extras.binChunkBuffer! : addBuffer(gltf);
 
   const timeBufferView = animBuffer.addBufferView(ComponentType.FLOAT, DataType.SCALAR);
+  let scalarBufferView: BufferView | undefined; // ComponentType.FLOAT, DataType.SCALAR
   let vec4BufferView: BufferView | undefined; // ComponentType.FLOAT, DataType.VEC4
   let vec3BufferView: BufferView | undefined; // ComponentType.FLOAT, DataType.VEC3
 
@@ -259,6 +284,9 @@ export function addAnimations(gltf: glTF, animations: Animation[], nodeIndex: nu
   if (animations[0].name && !gltfAnim.name) // TODO: Animation names
     gltfAnim.name = animations[0].name;
 
+  let tangentDatas: number[][] = [];
+  let includeDatas: number[][] = [];
+
   function _completeAnimation(animBufferView: BufferView, interpType: InterpolationMode, path: Transformation) {
     let timeAccessor = timeBufferView.endAccessor();
     let timeAccessor_idx = addAccessor(gltf, timeBufferView.getIndex(), timeAccessor);
@@ -272,6 +300,7 @@ export function addAnimations(gltf: glTF, animations: Animation[], nodeIndex: nu
       "output": animAccessor_idx,
       "interpolation": interpType
     };
+
     // then create channels (sampler: get sampler idx from above)
     const channel: glTFAnimationChannel = {
       "sampler": gltfAnim.samplers.length,
@@ -280,6 +309,41 @@ export function addAnimations(gltf: glTF, animations: Animation[], nodeIndex: nu
         "path": path
       }
     };
+
+    // add included keyframe data
+    let isAddInclude = false;
+    for (let d of includeDatas) {
+      if (d.length > 0) {
+        isAddInclude = true;
+        break;
+      }
+    }
+    if (isAddInclude) {
+      channel.extras = {};
+      channel.extras.include = includeDatas;
+    }
+    includeDatas = []; // reset
+
+    // add custom spline data
+    // stored as a vec4 buffer view (rightTangent, rightTangentWeight, leftTangent, leftTangentWeight)
+    if (interpType === InterpolationMode.CUBICSPLINE && tangentDatas.length > 0) {
+      if (!vec4BufferView)
+        vec4BufferView = animBuffer.addBufferView(ComponentType.FLOAT, DataType.VEC4);
+      vec4BufferView.startAccessor();
+
+      for (let frame = 0; frame < tangentDatas.length; frame++) {
+        let td = tangentDatas[frame];
+        for (let v of td)
+          vec4BufferView.push(v);
+      }
+
+      let tangentAccessor = vec4BufferView.endAccessor();
+      let tangentAccessor_idx = addAccessor(gltf, vec4BufferView.getIndex(), tangentAccessor);
+
+      sampler.extras = {};
+      sampler.extras.tangents = tangentAccessor_idx;
+    }
+    tangentDatas = []; // reset
 
     gltfAnim.samplers.push(sampler);
     gltfAnim.channels.push(channel);
@@ -290,17 +354,30 @@ export function addAnimations(gltf: glTF, animations: Animation[], nodeIndex: nu
       continue;
     }
 
-    // push to channels and samplers
     let path = anim.path;
-    const isVec4 = anim.keyframes[0].value.length === 4;
+    const firstKF = anim.keyframes[0];
+
+    let isScalar = firstKF.value instanceof Number;
+    let isVec4 = false;
+    let isVec3 = false;
+    if (firstKF.value instanceof Array) {
+      if (firstKF.value.length === 4) isVec4 = true;
+      else isVec3 = true;
+    }
+    
+    // push to channels and samplers
     let animBufferView: BufferView;
-    if (isVec4) {
+    if (isScalar) {
+      if (!scalarBufferView) {
+        scalarBufferView = animBuffer.addBufferView(ComponentType.FLOAT, DataType.SCALAR);
+      }
+      animBufferView = scalarBufferView;
+    } else if (isVec4) {
       if (!vec4BufferView) {
         vec4BufferView = animBuffer.addBufferView(ComponentType.FLOAT, DataType.VEC4);
       }
       animBufferView = vec4BufferView;
-    }
-    else {
+    } else { // isVec3
       if (!vec3BufferView) {
         vec3BufferView = animBuffer.addBufferView(ComponentType.FLOAT, DataType.VEC3);
       }
@@ -314,50 +391,34 @@ export function addAnimations(gltf: glTF, animations: Animation[], nodeIndex: nu
     let prev_interpType = anim.keyframes![0].interpType;
     let ix = 0;
     let total_kf = anim.keyframes.length;
+
     for (let idx = 0; idx < total_kf; ++idx) {
       let keyframe = anim.keyframes[idx];
       let interpType = keyframe.interpType;
       if (interpType != prev_interpType) {
         _completeAnimation(animBufferView, prev_interpType, path);
+
         timeBufferView.startAccessor();
         animBufferView.startAccessor();
         ix = 0;
       }
 
-      const isSpline = interpType === InterpolationMode.CUBICSPLINE;
-      if (isSpline && isVec4)
-        throw new Error("CUBICSPLINE for Vector4 not implemented!");
-
-      const { time, value } = keyframe;
+      let time = keyframe.time;
+      let value = keyframe.value;
 
       timeBufferView.push(time);
-      if (isSpline) {
-        let spline_info = keyframe.extras;
-
-        let outTangent = [0, 0, 0];
-        let inTangent = [0, 0, 0];
-        if (spline_info?.inTangent && ix > 0) {
-          inTangent = spline_info!.inTangent;
-        }
-        if (spline_info?.outTangent
-          && (idx < total_kf - 1)
-          && anim.keyframes[idx+1].interpType === InterpolationMode.CUBICSPLINE) {
-          outTangent = spline_info!.outTangent;
-        }
-
-        const data = [inTangent, value, outTangent];
-        for (let d of data) {
-          for (let j = 0; j < 3; ++j) {
-            animBufferView.push(d[j]); // aaavvvbbb, a=inTangent, v=value, b=outTangent
-          }
-        }
+      for (let v of value) {
+        animBufferView.push(v);
       }
-      else {
-        const tj = isVec4 ? 4 : 3;
-        for (let j = 0; j < tj; ++j) {
-          animBufferView.push(value[j]);
-        }
+
+      // add all additional cubicspline info
+      if (interpType === InterpolationMode.CUBICSPLINE) {
+        let tangentData = GetKeyframeTangentData(keyframe);
+        if (tangentData)
+          tangentDatas.push(tangentData);
       }
+      includeDatas.push(keyframe.include ? keyframe.include: []);
+    
       ix++;
 
       prev_interpType = interpType;
@@ -366,10 +427,8 @@ export function addAnimations(gltf: glTF, animations: Animation[], nodeIndex: nu
   }
 
   timeBufferView.finalize();
-  if (vec4BufferView)
-    vec4BufferView.finalize();
-  if (vec3BufferView)
-    vec3BufferView.finalize();
+  for (let bv of [scalarBufferView, vec4BufferView, vec3BufferView])
+    if (bv) bv.finalize();
   if (!singleGLBBuffer)
     animBuffer.finalize();
 }

@@ -45,7 +45,8 @@ export interface glTFBuffer {
 export interface glTFAnimationSampler {
   input: number;
   output: number;
-  interpolation: InterpolationMode
+  interpolation: InterpolationMode;
+  extras?: any;
 }
 
 export interface glTFAnimationChannel {
@@ -53,7 +54,8 @@ export interface glTFAnimationChannel {
   target: {
     node: number;
     path: Transformation
-  }
+  };
+  extras?: any;
 }
 
 export interface glTFAnimation {
