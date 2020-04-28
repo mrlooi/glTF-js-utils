@@ -5,9 +5,17 @@ import { Animation } from "../src/animation";
 import { InterpolationMode, Transformation } from "../src/types";
 import { addAccessor, addBuffer, addScenes, createEmptyGLTF } from "../src/gltf";
 
-function assert_scalar_equal(s:number, s1:number, eps:number=1e-4)
-{
+
+function assert_scalar_equal(s:number, s1:number, eps:number=1e-4) {
     console.assert(Math.abs(s - s1) < eps);
+}
+
+function assert_scalar_array_equal(arr1:number[], arr2:number[], eps:number=1e-4) {
+    const N = arr1.length;
+    console.assert(N === arr2.length);
+    for(let i = 0; i < N; ++i) {
+        assert_scalar_equal(arr1[i], arr2[i], eps);
+    }
 }
 
 function download(content: string, fileName: string, contentType: string = "text/plain") {
@@ -204,7 +212,8 @@ function animation_test() {
         {
             time: 0.2,
             value: [2,3,4,5],
-            interpType: InterpolationMode.LINEAR
+            interpType: InterpolationMode.LINEAR,
+            include: [0, 2]
         },
         {
             time: 0.4,
@@ -253,6 +262,10 @@ function animation_test() {
     let sampler1 = gltfAnim.samplers![0]; // interpolation: LINEAR
     let sampler2 = gltfAnim.samplers![1]; // interpolation: STEP
     let sampler3 = gltfAnim.samplers![2]; // interpolation: LINEAR
+
+    console.assert(channel1.extras.include)
+    console.log(channel1.extras.include)
+    assert_scalar_array_equal(channel1.extras.include![1], nodeAnim1.keyframes[1].include!);
 
     // assert channel targets
     console.assert(
