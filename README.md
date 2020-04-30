@@ -57,7 +57,7 @@ import { Node, Animation, InterpolationMode, Transformation } from "gltf-js-util
 
 const node = new Node();
 scene.addNode(node);
-const nodeAnim = new Animation(Transformation.TRANSLATION);
+const nodeAnim = new Animation("translation");
 let keyframes = [
     {
         time: 0,
@@ -66,8 +66,6 @@ let keyframes = [
         rightTangent: [0.1,0.2,0.3], // xyz
         leftTangent: [1,2,3], // xyz (similar to FBX, leftTangent means leftTangent for NEXT FRAME)
         leftTangentWeight: [0.2,0.4,0.6], // xyz
-
-        include: [0, 2] // means include x z keyframe (and exclude y) // THIS IS JUST A PLACEHOLDER
     },
     {
         time: 0.3,
@@ -80,35 +78,27 @@ nodeAnim.addKeyframe(0.8, [7, 8, 9], InterpolationMode.STEP, {rightTangent:[0,0,
 node.animations = [nodeAnim];
 
 /*
-NOTE ON `include` field
+NOTE ON SINGLE CHANNEL ANIMATION:
+
 GLTF does not support single channel animation out-the-box. 
-As a workaround, `include` is used to indicate which channel should be included as keyframe
-Example: a VEC3 datatype would have a default `include` of [0,1,2] (or equivalent []), representing 
-the indices for all 3 channels
-i.e. `include` of [1] means only the second channel
+As a workaround, simply add ".x", ".y", or ".z" to the path.
+And use scalar values per keyframe.
 
-Note that this is just a placeholder, keyframe values (and/or tangents) would 
-still be required and stored in the output GLTF file
-
-This information is stored in the *extras.include* field in the respective animation *channel*
-{
-    // this sampler has 4 keyframes (3 channels per keyframe i.e. translation xyz)
-    sampler: 0,
-    target: {
-        node: 3, 
-        path: "translation"
-    },
-    extras: {
-        // include.length = 4 keyframes
-        include: [
-            [0,2],   // channel 0 and 2 only  
-            [],      // means all 3 channels
-            [0,1,2], // means all 3 channels
-            [1]      // channel 1 only
-        ]
-    }
-} 
+The output sampler will be a SCALAR accessor
 */
+
+const nodeAnim = new Animation("rotation.x"); // for x channel 
+let keyframes = [
+    {
+        time: 0,
+        value: 2, // scalar, or [2] also works
+        interpType: InterpolationMode.CUBICSPLINE,
+        rightTangent: 0.1, // scalar
+        leftTangentWeight: 0.22, // scalar
+    }
+];
+nodeAnim.addKeyframes(keyframes);
+
 
 /*
 NOTE ON CUBICSPLINE TANGENT DATA:

@@ -212,8 +212,7 @@ function animation_test() {
         {
             time: 0.2,
             value: [2,3,4,5],
-            interpType: InterpolationMode.LINEAR,
-            include: [0, 2]
+            interpType: InterpolationMode.LINEAR
         },
         {
             time: 0.4,
@@ -262,10 +261,6 @@ function animation_test() {
     let sampler1 = gltfAnim.samplers![0]; // interpolation: LINEAR
     let sampler2 = gltfAnim.samplers![1]; // interpolation: STEP
     let sampler3 = gltfAnim.samplers![2]; // interpolation: LINEAR
-
-    console.assert(channel1.extras.include)
-    console.log(channel1.extras.include)
-    assert_scalar_array_equal(channel1.extras.include![1], nodeAnim1.keyframes[1].include!);
 
     // assert channel targets
     console.assert(
@@ -378,7 +373,6 @@ function animation_cubicspline_test() {
             interpType: InterpolationMode.CUBICSPLINE,
             rightTangent: [0.1,0.2,0.3],
             leftTangentWeight: [0.22,0.4,0.6],
-            include: [0, 2]
         },
         {
             time: 0.2,
@@ -454,6 +448,57 @@ function animation_cubicspline_test() {
         // console.log(data, BV, buffer);
         
         // download(value["model.gltf"], "yolo.gltf");
+    })
+}
+
+function animation_single_channel_test()
+{
+    const asset = new GLTFUtils.GLTFAsset();
+    const scene = new GLTFUtils.Scene();
+
+    asset.addScene(scene);
+    let gltf = createGLTF(asset);
+
+    const node = new GLTFUtils.Node();
+    scene.addNode(node);
+
+    let nodeAnimX = new GLTFUtils.Animation(Transformation.TRANSLATION + ".x");
+    let keyframes = [
+        {
+            time: 0,
+            value: 2,
+            interpType: InterpolationMode.CUBICSPLINE,
+            rightTangent: 0.1,
+            leftTangentWeight: 0.22,
+        },
+        {
+            time: 0.2,
+            value: 4,
+            interpType: InterpolationMode.CUBICSPLINE,
+            rightTangent: 0.5,
+            leftTangent: -0.2,
+        },
+    ];
+    nodeAnimX.addKeyframes(keyframes)
+    node.animations = [nodeAnimX];
+
+    let nodeAnimY = new GLTFUtils.Animation(Transformation.TRANSLATION + ".y");
+    nodeAnimY.addKeyframe(0.3, 2, InterpolationMode.LINEAR);
+
+    let nodeAnimZ = new GLTFUtils.Animation(Transformation.TRANSLATION + ".z");
+    nodeAnimZ.addKeyframe(0.1, 4, InterpolationMode.STEP);
+
+    node.animations.push(nodeAnimY)
+    node.animations.push(nodeAnimZ)
+
+    GLTFUtils.exportGLTF(asset, {bufferOutputType: GLTFUtils.BufferOutputType.DataURI}).then((value)=>{
+        console.log(value["model.gltf"])
+        let out = JSON.parse(value["model.gltf"])
+        let anim_samplers = out.animations[0].samplers;
+        console.assert(anim_samplers!.length === 3 && anim_samplers[0].extras.tangents);
+        console.assert(out.accessors[anim_samplers[0].output].type === DataType.SCALAR);
+
+        download(value["model.gltf"], "yolo.gltf");
     })
 }
 
@@ -623,6 +668,7 @@ function matrix_test() {
 
 // matrix_test();
 // test1();
-animation_test();
-animation_cubicspline_test();
+// animation_test();
+// animation_cubicspline_test();
+animation_single_channel_test();
 // skin_test();

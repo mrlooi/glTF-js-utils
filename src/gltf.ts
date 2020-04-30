@@ -285,9 +285,8 @@ export function addAnimations(gltf: glTF, animations: Animation[], nodeIndex: nu
     gltfAnim.name = animations[0].name;
 
   let tangentDatas: number[][] = [];
-  let includeDatas: number[][] = [];
 
-  function _completeAnimation(animBufferView: BufferView, interpType: InterpolationMode, path: Transformation) {
+  function _completeAnimation(animBufferView: BufferView, interpType: InterpolationMode, path: string) {
     let timeAccessor = timeBufferView.endAccessor();
     let timeAccessor_idx = addAccessor(gltf, timeBufferView.getIndex(), timeAccessor);
 
@@ -309,20 +308,6 @@ export function addAnimations(gltf: glTF, animations: Animation[], nodeIndex: nu
         "path": path
       }
     };
-
-    // add included keyframe data
-    let isAddInclude = false;
-    for (let d of includeDatas) {
-      if (d.length > 0) {
-        isAddInclude = true;
-        break;
-      }
-    }
-    if (isAddInclude) {
-      channel.extras = {};
-      channel.extras.include = includeDatas;
-    }
-    includeDatas = []; // reset
 
     // add custom spline data
     // stored as a vec4 buffer view (rightTangent, rightTangentWeight, leftTangent, leftTangentWeight)
@@ -357,7 +342,7 @@ export function addAnimations(gltf: glTF, animations: Animation[], nodeIndex: nu
     let path = anim.path;
     const firstKF = anim.keyframes[0];
 
-    let isScalar = firstKF.value instanceof Number;
+    let isScalar = firstKF.value.length === 1;
     let isVec4 = false;
     let isVec3 = false;
     if (firstKF.value instanceof Array) {
@@ -417,7 +402,6 @@ export function addAnimations(gltf: glTF, animations: Animation[], nodeIndex: nu
         if (tangentData)
           tangentDatas.push(tangentData);
       }
-      includeDatas.push(keyframe.include ? keyframe.include: []);
     
       ix++;
 

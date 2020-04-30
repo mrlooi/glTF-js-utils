@@ -53,7 +53,7 @@ export interface glTFAnimationChannel {
   sampler: number;
   target: {
     node: number;
-    path: Transformation
+    path: string;
   };
   extras?: any;
 }

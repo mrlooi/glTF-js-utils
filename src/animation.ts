@@ -4,15 +4,6 @@ export interface Keyframe {
   time: number;
   value: number[];
   interpType: InterpolationMode;
-  
-  /*
-  `include` is used to indicate which channel should be included as keyframe
-  so a vector3 datatype would have a default `include` of [0,1,2] (or equivalent []), representing 
-  the indices for all 3 channels
-  i.e. `include` of [1] means only the second channel
-  note that this is just a placeholder number and meant for the importer's reference 
-  */
-  include?: number[];
 
   /*
   For cubicspline interpolation:
@@ -32,10 +23,10 @@ export class Animation {
   static DEFAULT_TANGENT: number = 0;
 
   public keyframes: Keyframe[] = [];
-  public path: Transformation;
+  public path: string;
   public name: string = "";
 
-  public constructor(path: Transformation, name: string = "") {
+  public constructor(path: string, name: string = "") {
     this.path = path;
     this.name = name;
   }
@@ -67,22 +58,11 @@ export class Animation {
       value = [value];
     value = (value as number[]);
 
-    // let include = [];
-    // const N = value.length;
-    // for(let i = 0; i < N; ++i) include.push(i);
-
     const kf: Keyframe = {
       time,
       value,
       interpType
     };
-
-    if (extras) {
-      if ("include" in extras) {
-        let e_inc = extras.include
-        kf.include = e_inc instanceof Array ? e_inc : [e_inc];
-      }
-    }
 
     if (interpType === InterpolationMode.CUBICSPLINE) {
       this._initKeyframeDefaultTangents(kf);
